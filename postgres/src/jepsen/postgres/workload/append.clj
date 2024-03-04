@@ -3,7 +3,7 @@
   (:require [clojure.tools.logging :refer [info warn]]
             [clojure [pprint :refer [pprint]]
                      [string :as str]]
-            [dom-top.core :refer [with-retry]]
+            [dom-top.core :refer [loopr with-retry]]
             [elle.core :as elle]
             [jepsen [checker :as checker]
              [client :as client]
@@ -183,6 +183,53 @@
   (close! [this test]
     (c/close! conn)))
 
+(defn process->node
+  "Converts a process back to a node ID."
+  [test process]
+  (nth (:nodes test) (mod process (count (:nodes test)))))
+
+(defn read-only
+  "Converts writes to reads."
+  [op]
+  (loopr [txn' []]
+         [[f k v :as mop] (:value op)]
+         (recur (conj txn' (case f
+                             :r mop
+                             [:r k nil])))
+         (assoc op :f :read, :value txn')))
+
+(defrecord ROGen [gen ro-nodes]
+  gen/Generator
+  (update [this test ctx event]
+    (let [gen' (gen/update gen test ctx event)]
+      (if (= [:read-only] (:error event))
+        ; Flag this node as read-only
+        (let [node (process->node test (:process event))]
+          (ROGen. gen' (conj ro-nodes node)))
+        (ROGen. gen' ro-nodes))))
+
+  (op [this test ctx]
+    (when-let [[op gen'] (gen/op gen test ctx)]
+      (if (= :pending op)
+        [:pending this]
+        (let [node (process->node test (:process op))]
+          (if (contains? ro-nodes node)
+            (let [op (read-only op)
+                  ; Small chance of this node going back to normal
+                  ro-nodes' (if (< (rand) 0.001)
+                              (disj ro-nodes node)
+                              ro-nodes)]
+              [op (ROGen. gen' ro-nodes')])
+            ; Pass through
+            [op (ROGen. gen' ro-nodes)]))))))
+
+(defn ro-gen
+  "Generator that detects read-only errors and flips to emitting read-only
+  transactions on that node. Nodes fall out of the read-only pool randomly over
+  time."
+  [gen]
+  (ROGen. gen #{}))
+
 (defn workload
   "A list append workload."
   [opts]
@@ -191,4 +238,5 @@
                                              :max-writes-per-key])
                           :min-txn-length 1
                           :consistency-models [(:expected-consistency-model opts)]))
-      (assoc :client (Client. nil nil nil))))
+      (assoc :client (Client. nil nil nil))
+      (update :generator ro-gen)))
