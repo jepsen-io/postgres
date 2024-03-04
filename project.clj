@@ -1,4 +1,4 @@
-(defproject jepsen.postgres "0.1.0"
+(defproject io.jepsen/postgres "0.1.0"
   :description "Jepsen tests for PostgreSQL."
   :url "https://github.com/jepsen-io/postgres"
   :license {:name "EPL-2.0 OR GPL-2.0-or-later WITH Classpath-exception-2.0"

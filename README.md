@@ -7,7 +7,7 @@ Jepsen tests for the Postgres database system.
 To check Postgres `SERIALIZABLE`, try
 
 ```
-lein run test-all -w append --concurrency 50 --isolation serializable --just-postgres --node n1 --nemesis none --time-limit 120 -r 200 --test-count 2 --max-writes-per-key 16
+lein run test-all --node n1 -w append --concurrency 50 --isolation serializable --nemesis none --time-limit 120 -r 200 --test-count 2 --max-writes-per-key 1
 ```
 
 If you have a postgres process on localhost, with a postgres user (and
