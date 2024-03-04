@@ -8,6 +8,7 @@
                     [checker :as checker]
                     [db :as jdb]
                     [generator :as gen]
+                    [nemesis :as nemesis]
                     [os :as os]
                     [tests :as tests]
                     [util :as util]]
@@ -69,20 +70,23 @@
         os            (if (:existing-postgres opts)
                         os/noop
                         debian/os)
-        nemesis       (nc/nemesis-package
-                        {:db        db
-                         :nodes     (:nodes opts)
-                         :faults    (:nemesis opts)
-                         :partition {:targets [:primaries]}
-                         :pause     {:targets [nil :one :primaries :majority :all]}
-                         :kill      {:targets [nil :one :primaries :majority :all]}
-                         :interval  (:nemesis-interval opts)})]
+        nemesis       (if (:existing-postgres opts)
+                        {:nemesis nemesis/noop}
+                        (nc/nemesis-package
+                          {:db        db
+                           :nodes     (:nodes opts)
+                           :faults    (:nemesis opts)
+                           :partition {:targets [:primaries]}
+                           :pause     {:targets [nil :one :primaries :majority :all]}
+                           :kill      {:targets [nil :one :primaries :majority :all]}
+                           :interval  (:nemesis-interval opts)}))]
     (merge tests/noop-test
            opts
            {:name (str "postgres " (name workload-name)
                        " " (short-isolation (:isolation opts)) " ("
                        (short-isolation (:expected-consistency-model opts)) ")"
-                       " " (str/join "," (map name (:nemesis opts))))
+                       (when-let [ns (:nemesis opts)]
+                         (str " " (str/join "," (map name (:nemesis opts))))))
             :os   os
             :db   db
             :checker (checker/compose
@@ -146,6 +150,8 @@
     :default 5
     :parse-fn read-string
     :validate [pos? "Must be a positive number."]]
+
+   [nil "--on-conflict" "If set, uses an ON CONFLICT clause to upsert rows."]
 
    [nil "--postgres-password PASS" "What password should we use to connect to postgres?"
     :default "pw"]

@@ -90,6 +90,9 @@
 
         (catch org.postgresql.util.PSQLException e#
           (condp re-find (.getMessage e#)
+            #"ERROR: cannot execute UPDATE in a read-only transaction"
+            (assoc ~op :type :fail, :error [:read-only])
+
             #"ERROR: could not serialize access"
             (assoc ~op :type :fail, :error [:could-not-serialize (.getMessage e#)])
 

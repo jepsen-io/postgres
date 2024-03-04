@@ -7,6 +7,7 @@
             [elle.core :as elle]
             [jepsen [checker :as checker]
              [client :as client]
+             [core :as jepsen]
              [generator :as gen]
              [util :as util]]
             [jepsen.checker.timeline :as timeline]
@@ -51,12 +52,12 @@
   back to it on failure."
   [conn test txn? table k e]
   (try
-    (info (if txn? "" "not") "in transaction")
+    ;(info (if txn? "" "not") "in transaction")
     (when txn? (j/execute! conn ["savepoint upsert"]))
-    (info :insert (j/execute! conn
-                              [(str "insert into " table " (id, sk, val)"
-                                    " values (?, ?, ?)")
-                               k k e]))
+    (j/execute! conn
+                [(str "insert into " table " (id, sk, val)"
+                      " values (?, ?, ?)")
+                 k k e])
     (when txn? (j/execute! conn ["release savepoint upsert"]))
     true
     (catch org.postgresql.util.PSQLException e
@@ -73,7 +74,7 @@
   (let [res (-> conn
                 (j/execute-one! [(str "update " table " set val = CONCAT(val, ',', ?)"
                                       " where id = ?") e k]))]
-    (info :update res)
+    ;(info :update res)
     (-> res
         :next.jdbc/update-count
         pos?)))
@@ -130,34 +131,34 @@
              :initialized?  (atom false))))
 
   (setup! [_ test]
-    (dotimes [i (:table-count test default-table-count)]
-      ; OK, so first worrying thing: why can this throw duplicate key errors if
-      ; it's executed with "if not exists"?
-      (with-retry [conn  conn
-                   tries 10]
-        (j/execute! conn
-                    [(str "create table if not exists " (table-name i)
-                          " (id int not null primary key,
-                          sk int not null,
-                          val text)")])
-        (catch org.postgresql.util.PSQLException e
-          (condp re-find (.getMessage e)
-            #"duplicate key value violates unique constraint"
-            :dup
+    ; Secondaries may not be writable; always do writes on the primary node.
+    (when (= node (jepsen/primary test))
+      (dotimes [i (:table-count test default-table-count)]
+        (with-retry [conn  conn
+                     tries 10]
+          (j/execute! conn
+                      [(str "create table if not exists " (table-name i)
+                            " (id int not null primary key,
+                            sk int not null,
+                            val text)")])
+          (catch org.postgresql.util.PSQLException e
+            (condp re-find (.getMessage e)
+              #"duplicate key value violates unique constraint"
+              :dup
 
-            #"An I/O error occurred|connection has been closed"
-            (do (when (zero? tries)
-                  (throw e))
-                (info "Retrying IO error")
-                (Thread/sleep 1000)
-                (c/close! conn)
-                (retry (c/await-open node)
-                       (dec tries)))
+              #"An I/O error occurred|connection has been closed"
+              (do (when (zero? tries)
+                    (throw e))
+                  (info "Retrying IO error")
+                  (Thread/sleep 1000)
+                  (c/close! conn)
+                  (retry (c/await-open node)
+                         (dec tries)))
 
-            (throw e))))
-      ; Make sure we start fresh--in case we're using an existing postgres
-      ; cluster and the DB automation isn't wiping the state for us.
-      (j/execute! conn [(str "delete from " (table-name i))])))
+              (throw e))))
+        ; Make sure we start fresh--in case we're using an existing postgres
+        ; cluster and the DB automation isn't wiping the state for us.
+        (j/execute! conn [(str "delete from " (table-name i))]))))
 
   (invoke! [_ test op]
     ; One-time connection setup
