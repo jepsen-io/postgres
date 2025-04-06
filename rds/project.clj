@@ -1,4 +1,4 @@
-(defproject io.jepsen/postgres.rds "0.1.0"
+(defproject io.jepsen/postgres.rds "0.1.1-SNAPSHOT"
   :description "Jepsen tests for AWS Postgres RDS."
   :url "https://github.com/jepsen-io/postgres"
   :license {:name "EPL-2.0 OR GPL-2.0-or-later WITH Classpath-exception-2.0"
