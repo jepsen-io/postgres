@@ -7,11 +7,12 @@ you deserve better, but I'm just drowning in backlogged tasks.
 ## Quickstart
 
 Create an RDS cluster. This takes about 15 minutes, so we make it a separate
-phase from normal setup/teardown.
+phase from normal setup/teardown. Replace this security group with whatever
+security group you'd like to associate with your # cluster. This security group
+should let your control node (i.e. the computer where you're running this test)
+talk to it.
 
 ```sh
-# Replace this with whatever security group you'd like to associate with your
-# cluster.
 lein run rds-setup --security-group sg-03948b38d0afdd49a
 ```
 
@@ -37,7 +38,7 @@ lein run rds-teardown
 
 ## License
 
-Copyright © 2024 Jepsen, LLC
+Copyright © Jepsen, LLC
 
 This program and the accompanying materials are made available under the
 terms of the Eclipse Public License 2.0 which is available at

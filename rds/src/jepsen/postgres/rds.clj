@@ -130,12 +130,16 @@
 
 (def rds-setup-cmd
   "A command which creates an RDS cluster."
-  {:opt-spec  [["-s" "--security-group ID" "The ID of a security group you'd like to associate with this cluster."]]
+  {:opt-spec
+   [["-s" "--security-group ID" "The ID of a security group you'd like to associate with this cluster."]
+    ["-v" "--version VERSION" "What version of Postgres should we request?"
+     :default "17.4"]]
    :usage     "Creates a fresh RDS cluster, writing its details to ./rds.edn"
    :opt-fn    identity
    :run (fn run [{:keys [options]}]
           (let [c (rds/create-postgres!
-                    {:security-group-id (:security-group options)})]
+                    {:engine-version    (:version options)
+                     :security-group-id (:security-group options)})]
             (pprint c)
             (spit rds-file (with-out-str (pprint c)))
             (info "RDS cluster ready.")))})
