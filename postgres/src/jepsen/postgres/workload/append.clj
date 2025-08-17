@@ -234,6 +234,7 @@
   "A list append workload."
   [opts]
   (-> (append/test (assoc (select-keys opts [:key-count
+                                             :key-dist
                                              :max-txn-length
                                              :max-writes-per-key])
                           :min-txn-length 1
