@@ -131,6 +131,12 @@
     :parse-fn parse-long
     :validate [pos? "Must be a positive integer"]]
 
+   [nil "--key-dist DISTRIBUTION" "Key distribution pattern for workload generation."
+    :default :exponential
+    :parse-fn keyword
+    :validate [#{:uniform :exponential}
+               "Should be one of uniform or exponential"]]
+
    [nil "--nemesis FAULTS" "A comma-separated list of nemesis faults to enable"
      :parse-fn parse-nemesis-spec
      :validate [(partial every? #{:pause :kill :partition :clock :member})
