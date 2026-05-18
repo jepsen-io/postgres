@@ -14,16 +14,18 @@
 (defn open
   "Opens a connection to the given node."
   [test node]
-  (let [spec  {:dbtype    "postgresql"
-               ;:dbname    "jepsen"
-               :host      node
-               :port      (:postgres-port     test)
-               :user      (:postgres-user     test)
-               :password  (:postgres-password test)
-               :sslmode   (:postgres-sslmode test)}
-        spec  (if-let [pt (:prepare-threshold test)]
-                (assoc spec :prepareThreshold pt)
-                spec)
+  (let [user              (:postgres-user       test)
+        password          (:postgres-password   test)
+        sslmode           (:postgres-sslmode    test)
+        prepare-threshold (:prepare-threshold   test)
+        spec  (cond-> {:dbtype    "postgresql"
+                       ;:dbname    "jepsen"
+                       :host      node
+                       :port      (:postgres-port     test)}
+                user              (assoc :user              user)
+                password          (assoc :password          password)
+                sslmode           (assoc :sslmode           sslmode)
+                prepare-threshold (assoc :prepareThreshold  prepare-threshold))
         ds    (j/get-datasource spec)
         conn  (j/get-connection ds)]
     conn))
