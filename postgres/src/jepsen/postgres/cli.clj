@@ -1,5 +1,6 @@
 (ns jepsen.postgres.cli
   "Constructs tests, handles CLI arguments, etc."
+  (:gen-class)
   (:require [clojure.tools.logging :refer [info warn]]
             [clojure [pprint :refer [pprint]]
                      [string :as str]]
