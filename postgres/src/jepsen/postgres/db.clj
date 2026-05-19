@@ -7,7 +7,7 @@
             [clojure.tools.logging :refer [info warn]]
             [dom-top.core :refer [disorderly
                                   real-pmap]]
-            [jepsen [control :as c]
+            [jepsen [control :as c :refer [|]]
                     [core :as jepsen]
                     [db :as db]
                     [util :as util :refer [meh random-nonempty-subset]]]
@@ -28,14 +28,10 @@
   "Installs postgresql"
   [test node]
   (c/su
-    ; Install apt key
-    (c/exec :wget :--quiet :-O :- "https://www.postgresql.org/media/keys/ACCC4CF8.asc" c/| :apt-key :add :-)
     ; Add repo
-    (debian/install [:lsb-release])
-    (let [release (c/exec :lsb_release :-cs)]
-      (debian/add-repo! "postgresql"
-                        (str "deb http://apt.postgresql.org/pub/repos/apt/ "
-                             release "-pgdg main")))
+    (debian/install ["postgresql-common"])
+    (info "Adding Postgres apt repos")
+    (c/exec :echo "" | "/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh")
     ; Install
     (debian/install [:postgresql-12 :postgresql-client-12])
     ; Deactivate default install
