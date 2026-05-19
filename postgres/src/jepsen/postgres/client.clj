@@ -11,6 +11,17 @@
             [wall.hack :as wh])
   (:import (java.sql Connection)))
 
+(defn with-logging
+  "Wraps a connection-esque thing with an SQL logger, if (:log-sql test) is
+  true."
+  [test conn]
+  (if (:log-sql test)
+    (j/with-logging conn
+      (fn req-logger [op sql] sql)
+      (fn res-logger [op sql res]
+        (info op (pr-str sql) '-> (pr-str res))))
+    conn))
+
 (defn open
   "Opens a connection to the given node."
   [test node]
@@ -28,7 +39,7 @@
                 prepare-threshold (assoc :prepareThreshold  prepare-threshold))
         ds    (j/get-datasource spec)
         conn  (j/get-connection ds)]
-    conn))
+    (with-logging test conn)))
 
 (defn set-transaction-isolation!
   "Sets the transaction isolation level on a connection. Returns conn."
@@ -44,8 +55,9 @@
 
 (defn close!
   "Closes a connection."
-  [^java.sql.Connection conn]
-  (.close conn))
+  [conn]
+  (j/on-connection [^java.sql.Connection conn conn]
+    (.close conn)))
 
 (defn await-open
   "Waits for a connection to node to become available, returning conn. Helpful
@@ -108,3 +120,11 @@
             (assoc ~op :type :info, :error :connection-has-been-closed)
 
             (throw e#)))))
+
+(defmacro with-txn
+  "Like next.jdbc/with-transaction, but takes a test map first. Re-wraps the
+  connection in logging, if applicable."
+  [test [lhs rhs & opts] & body]
+  `(j/with-transaction [~lhs ~rhs ~@opts]
+     (let [~lhs (with-logging ~test ~lhs)]
+       ~@body)))

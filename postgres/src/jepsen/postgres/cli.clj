@@ -143,6 +143,8 @@
      :validate [(partial every? #{:pause :kill :partition :clock :member})
                 "Faults must be pause, kill, partition, clock, or member, or the special faults all or none."]]
 
+   [nil "--log-sql" "Logs SQL queries"]
+
    [nil "--max-txn-length NUM" "Maximum number of operations in a transaction."
     :default  4
     :parse-fn parse-long
