@@ -22,7 +22,7 @@
   "postgres")
 
 (def just-postgres-log-file
-  "/var/log/postgresql/postgresql-12-main.log")
+  "/var/log/postgresql/postgresql-18-main.log")
 
 (defn install-pg!
   "Installs postgresql"
@@ -33,7 +33,7 @@
     (info "Adding Postgres apt repos")
     (c/exec :echo "" | "/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh")
     ; Install
-    (debian/install [:postgresql-12 :postgresql-client-12])
+    (debian/install [:postgresql-18 :postgresql-client-18])
     ; Deactivate default install
     (c/exec :service :postgresql :stop)
     (c/exec "update-rc.d" :postgresql :disable)))
@@ -49,19 +49,20 @@
       (setup! [_ test node]
         (db/setup! tcpdump test node)
         (install-pg! test node)
-        (c/su (c/exec :echo (slurp (io/resource "pg_hba.conf"))
-                      :> "/etc/postgresql/12/main/pg_hba.conf")
-              (c/exec :echo (slurp (io/resource "postgresql.conf"))
-                      :> "/etc/postgresql/12/main/postgresql.conf"))
+        (c/su (cu/write-file! (slurp (io/resource "pg_hba.conf"))
+                             "/etc/postgresql/18/main/pg_hba.conf")
+              (cu/write-file! (slurp (io/resource "jepsen.conf"))
+                              "/etc/postgresql/18/main/conf.d/99-jepsen.conf"))
 
         ; Create fresh data dir
         (c/sudo user
                 ; Can't create if it exists--installing will make this dir
-                (c/exec :rm :-rf (c/lit "/var/lib/postgresql/12/main/*"))
-                (c/exec "/usr/lib/postgresql/12/bin/initdb"
-                        :-D "/var/lib/postgresql/12/main"))
+                (c/exec :rm :-rf (c/lit "/var/lib/postgresql/18/main/*"))
+                (c/exec "/usr/lib/postgresql/18/bin/initdb"
+                        :-D "/var/lib/postgresql/18/main"))
 
-        (c/su (c/exec :service :postgresql :start)))
+        (c/su (c/exec :service :postgresql :start))
+        (cu/await-tcp-port 5432))
 
       (teardown! [_ test node]
         (c/su (try+ (c/exec :service :postgresql :stop)
@@ -70,7 +71,7 @@
               ; This might not actually work, so we have to kill the processes
               ; too
               (cu/grepkill! "postgres")
-              (c/exec :rm :-rf (c/lit "/var/lib/postgresql/12/main/*")))
+              (c/exec :rm :-rf (c/lit "/var/lib/postgresql/18/main/*")))
         (try+ (c/sudo user
                       (c/exec :truncate :-s 0 just-postgres-log-file))
               (catch [:exit 1] _)) ; No user (not installed)
