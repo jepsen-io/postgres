@@ -9,7 +9,8 @@
             [next.jdbc.sql.builder :as sqlb]
             [slingshot.slingshot :refer [try+ throw+]]
             [wall.hack :as wh])
-  (:import (java.sql Connection)))
+  (:import (java.sql Connection)
+            (org.postgresql.util PSQLException)))
 
 (defn with-logging
   "Wraps a connection-esque thing with an SQL logger, if (:log-sql test) is
@@ -102,10 +103,9 @@
   [op & body]
   `(try ~@body
         (catch clojure.lang.ExceptionInfo e#
-          (warn e# "Caught ex-info")
           (assoc ~op :type :info, :error [:ex-info (.getMessage e#)]))
 
-        (catch org.postgresql.util.PSQLException e#
+        (catch PSQLException e#
           (condp re-find (.getMessage e#)
             #"ERROR: cannot execute .+ in a read-only transaction"
             (assoc ~op :type :fail, :error [:read-only])
@@ -115,6 +115,9 @@
 
             #"ERROR: deadlock detected"
             (assoc ~op :type :fail, :error [:deadlock (.getMessage e#)])
+
+            #"ERROR: duplicate key value"
+            (assoc ~op :type :fail, :error [:duplicate-key-value (.getMessage e#)])
 
             #"An I/O error occurred"
             (assoc ~op :type :info, :error :io-error)
