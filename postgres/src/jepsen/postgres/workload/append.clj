@@ -1,5 +1,6 @@
 (ns jepsen.postgres.workload.append
   "Test for transactional list append."
+  (:refer-clojure :exclude [read])
   (:require [clojure.tools.logging :refer [info warn]]
             [clojure [pprint :refer [pprint]]
                      [string :as str]]
@@ -9,7 +10,8 @@
              [client :as client]
              [core :as jepsen]
              [generator :as gen]
-             [util :as util]]
+             [util :as util]
+             [random :as rand]]
             [jepsen.checker.timeline :as timeline]
             [jepsen.tests.cycle.append :as append]
             [jepsen.postgres [client :as c]]
@@ -30,17 +32,32 @@
   [table-count k]
   (table-name (mod (hash k) table-count)))
 
+(defn read
+  "Reads the value of a single key."
+  [test conn table k]
+  (let [r (j/execute! conn
+                      [(str "select (val) from " table " where "
+                            (case (rand/nth (:key-types test))
+                              :primary "id"
+                              :secondary "sk")
+                            " = ? ")
+                       k]
+                      {:builder-fn rs/as-unqualified-lower-maps})]
+    (when-let [v (:val (first r))]
+      (mapv parse-long (str/split v #",")))))
+
 (defn append-using-on-conflict!
   "Appends an element to a key using an INSERT ... ON CONFLICT statement."
-  [conn test table k e]
+  [test conn table k e]
   (j/execute!
     conn
     [(str "insert into " table " as t"
           " (id, sk, val) values (?, ?, ?)"
           " on conflict (id) do update set"
           " val = CONCAT(t.val, ',', ?) where "
-          "t.id"
-          ;(if (< (rand) 0.5) "t.id" "t.sk")
+          (case (rand/nth (:key-types test))
+            :primary   "t.id"
+            :secondary "t.sk")
           " = ?")
      k k e e k]))
 
@@ -50,7 +67,7 @@
   due to a duplicate key, it'll break the rest of the transaction, assuming
   we're in a transaction, so we establish a savepoint before inserting and roll
   back to it on failure."
-  [conn test txn? table k e]
+  [test conn txn? table k e]
   (try
     ;(info (if txn? "" "not") "in transaction")
     (when txn? (j/execute! conn ["savepoint upsert"]))
@@ -70,10 +87,14 @@
 (defn update!
   "Performs an update of a key k, adding element e. Returns true if the update
   succeeded, false otherwise."
-  [conn test table k e]
+  [test conn table k e]
   (let [res (-> conn
                 (j/execute-one! [(str "update " table " set val = CONCAT(val, ',', ?)"
-                                      " where id = ?") e k]))]
+                                      " where "
+                                      (case (rand/nth (:key-types test))
+                                        :primary   "id"
+                                        :secondary "sk")
+                                      " = ?") e k]))]
     ;(info :update res)
     (-> res
         :next.jdbc/update-count
@@ -82,33 +103,25 @@
 (defn mop!
   "Executes a transactional micro-op on a connection. Returns the completed
   micro-op."
-  [conn test txn? [f k v]]
+  [test conn txn? [f k v]]
   (let [table-count (:table-count test default-table-count)
         table (table-for table-count k)]
-    (Thread/sleep (long (rand-int 10)))
+    (Thread/sleep (long (rand/zipf 10)))
     [f k (case f
-           :r (let [r (j/execute! conn
-                                  [(str "select (val) from " table " where "
-                                        ;(if (< (rand) 0.5) "id" "sk")
-                                        "id"
-                                        " = ? ")
-                                   k]
-                                  {:builder-fn rs/as-unqualified-lower-maps})]
-                (when-let [v (:val (first r))]
-                  (mapv parse-long (str/split v #","))))
+           :r (read test conn table k)
 
            :append
            (let [vs (str v)]
              (if (:on-conflict test)
                ; Use ON CONFLICT
-               (append-using-on-conflict! conn test table k vs)
+               (append-using-on-conflict! test conn table k vs)
                ; Try an update, and if that fails, back off to an insert.
-               (or (update! conn test table k vs)
+               (or (update! test conn table k vs)
                    ; No dice, fall back to an insert
-                   (insert! conn test txn? table k vs)
+                   (insert! test conn txn? table k vs)
                    ; OK if THAT failed then we probably raced with another
                    ; insert; let's try updating again.
-                   (update! conn test table k vs)
+                   (update! test conn table k vs)
                    ; And if THAT failed, all bets are off. This happens even
                    ; under SERIALIZABLE, but I don't think it technically
                    ; VIOLATES serializability.
@@ -171,10 +184,10 @@
             use-txn?  (< 1 (count txn))
             txn'      (if use-txn?
                       ;(if true
-                        (c/with-txn test [t conn
+                        (c/with-txn test [conn conn
                                           {:isolation (:isolation test)}]
-                          (mapv (partial mop! t test true) txn))
-                          (mapv (partial mop! conn test false) txn))]
+                          (mapv (partial mop! test conn true) txn))
+                          (mapv (partial mop! test conn false) txn))]
         (assoc op :type :ok, :value txn'))))
 
   (teardown! [_ test])

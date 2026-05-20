@@ -41,7 +41,9 @@
                     " (id, sk, val) VALUES (?, ?, ?)"
                     " ON CONFLICT (id) DO UPDATE SET"
                     " val = ? WHERE "
-                    (rand/nth ["t.id" "t.sk"])
+                    (case (rand/nth (:key-types test))
+                      :primary   "t.id"
+                      :secondary "t.sk")
                     " = ?")
                k k v v k])
   v)
@@ -52,8 +54,11 @@
   "Reads the value of key k."
   [test conn table k]
   (-> (j/execute! conn
-                  [(str "SELECT (val) FROM " table " AS t WHERE "
-                        (rand/nth ["t.id" "t.sk"]) " = ?")
+                  [(str "SELECT (val) FROM " table " WHERE "
+                        (case (rand/nth (:key-types test))
+                          :primary   "id"
+                          :secondary "sk")
+                        " = ?")
                    k]
                   {:builder-fn rs/as-unqualified-lower-maps})
       first

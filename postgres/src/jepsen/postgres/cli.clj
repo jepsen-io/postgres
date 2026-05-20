@@ -26,6 +26,10 @@
    :ledger      ledger/workload
    :none        (fn [_] tests/noop-test)})
 
+(def key-types
+  "The various ways we can select something by primary key."
+  #{:primary :secondary})
+
 (def all-workloads
   "A collection of workloads we run by default."
   (remove #{:none} (keys workloads)))
@@ -44,13 +48,18 @@
   {:none []
    :all  [:pause :kill :partition :clock]})
 
+(defn parse-comma-kws
+  "Parses comma-separated strings into a vector of keywords."
+  [s]
+  (mapv keyword (str/split s #",")))
+
 (defn parse-nemesis-spec
   "Takes a comma-separated nemesis string and returns a collection of keyword
   faults."
   [spec]
-  (->> (str/split spec #",")
-       (map keyword)
-       (mapcat #(get special-nemeses % [%]))))
+  (->> (parse-comma-kws spec)
+       (mapcat #(get special-nemeses % [%]))
+       vec))
 
 (def short-isolation
   {:strict-serializable "Strict-1SR"
@@ -128,6 +137,11 @@
    [nil "--expected-consistency-model MODEL" "What level of isolation do we *expect* to observe? Defaults to the same as --isolation."
     :default nil
     :parse-fn keyword]
+
+   [nil "--key-types TYPES" "Some workloads have multiple ways to select the row for a specific key. TYPES is a comma-separated list of types like primary,secondary, which means we use a mix of primary keys and (un-indexed) secondary keys."
+    :default  (vec key-types)
+    :parse-fn parse-comma-kws
+    :validate [(partial every? key-types) (cli/one-of key-types)]]
 
    [nil "--key-count NUM" "Number of keys in active rotation."
     :default  10
