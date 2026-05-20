@@ -17,10 +17,12 @@
             [jepsen.os.debian :as debian]
             [jepsen.postgres [db :as db]]
             [jepsen.postgres.workload [append :as append]
+                                      [wr     :as wr]
                                       [ledger :as ledger]]))
 
 (def workloads
   {:append      append/workload
+   :wr          wr/workload
    :ledger      ledger/workload
    :none        (fn [_] tests/noop-test)})
 

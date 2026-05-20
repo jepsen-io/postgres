@@ -17,9 +17,15 @@ database) named `jepsen`, and password `pw`, try:
 lein run test-all -w append --max-writes-per-key 4 --concurrency 50 -r 500 --isolation serializable --time-limit 60 --nemesis none --existing-postgres --node localhost --no-ssh --postgres-user jepsen --postgres-password pw
 ```
 
+## Workloads
+
+- `append`: Transactional reads and appends to lists of integers.
+- `wr`: Transactional reads and writes to registers.
+- `ledger`: Incomplete work-in-progress to test predicate safety.
+
 ## License
 
-Copyright © 2020, 2024 Jepsen, LLC
+Copyright © 2020--2026 Jepsen, LLC
 
 This program and the accompanying materials are made available under the
 terms of the Eclipse Public License 2.0 which is available at
