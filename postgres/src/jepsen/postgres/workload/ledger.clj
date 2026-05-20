@@ -3,7 +3,10 @@
   we found using the list-append test. We store a simulated bank ledger where
   each transaction is a row. Withdrawals require a positive balance across all
   rows. We attempt a double-spend attack, which should fail under
-  serializability."
+  serializability.
+
+
+  This is a work-in-progress: it does not work correctly."
   (:require [clojure.tools.logging :refer [info warn]]
             [clojure [pprint :refer [pprint]]
                      [string :as str]]
@@ -118,13 +121,11 @@
     ; One-time connection setup
     (when (compare-and-set! initialized? false true)
       (j/execute! conn [(str "set application_name = 'jepsen process "
-                        (:process op) "'")])
-      (c/set-transaction-isolation! conn (:isolation test)))
+                        (:process op) "'")]))
 
     (let [[account amount] (:value op)]
       (c/with-errors op
-        (j/with-transaction [t conn
-                             {:isolation (:isolation test)}]
+        (c/with-txn test [t conn {:isolation (:isolation test)}]
           (assoc op :type (if (transfer! conn test
                                          (swap! next-id inc)
                                          account amount)
