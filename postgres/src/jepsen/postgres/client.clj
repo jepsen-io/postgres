@@ -19,7 +19,10 @@
     (j/with-logging conn
       (fn req-logger [op sql] sql)
       (fn res-logger [op sql res]
-        (info op (pr-str sql) '-> (pr-str res))))
+        (info op (pr-str sql) '->
+              (if (instance? Throwable res)
+                (.getMessage ^Throwable res)
+                (pr-str res)))))
     conn))
 
 (defn open
@@ -128,3 +131,16 @@
   `(j/with-transaction [~lhs ~rhs ~@opts]
      (let [~lhs (with-logging ~test ~lhs)]
        ~@body)))
+
+(defmacro with-manual-txn
+  "Same as with-txn, but uses explicit BEGIN/COMMIT statements."
+  [test [lhs rhs & opts] & body]
+  `(let [~lhs ~rhs]
+     (try
+       (j/execute! ~lhs ["BEGIN"])
+       (let [res# ~@body]
+         (j/execute! ~lhs ["COMMIT"])
+         res#)
+       (catch Exception e#
+         (j/execute! ~lhs ["ROLLBACK"])
+         (throw e#)))))

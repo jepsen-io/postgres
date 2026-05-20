@@ -171,10 +171,10 @@
             use-txn?  (< 1 (count txn))
             txn'      (if use-txn?
                       ;(if true
-                      (c/with-txn test [t conn
-                                         {:isolation (:isolation test)}]
-                        (mapv (partial mop! t test true) txn))
-                        (mapv (partial mop! conn test false) txn))]
+                        (c/with-txn test [t conn
+                                          {:isolation (:isolation test)}]
+                          (mapv (partial mop! t test true) txn))
+                          (mapv (partial mop! conn test false) txn))]
         (assoc op :type :ok, :value txn'))))
 
   (teardown! [_ test])
