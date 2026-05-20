@@ -18,7 +18,8 @@
             [next.jdbc :as j]
             [next.jdbc.result-set :as rs]
             [next.jdbc.sql.builder :as sqlb]
-            [slingshot.slingshot :refer [try+ throw+]]))
+            [slingshot.slingshot :refer [try+ throw+]])
+  (:import (org.postgresql.util PSQLException)))
 
 (def default-table-count 3)
 
@@ -45,10 +46,71 @@
                       :primary   "t.id"
                       :secondary "t.sk")
                     " = ?")
-               k k v v k])
-  v)
+               k k v v k]))
 
-(def write! write-on-conflict!)
+(defn write-update!
+  "Sets k to v by using an UPDATE statement. Returns true if written, otherwise
+  false, so you can fall back to an INSERT."
+  [test conn table k v]
+  (-> conn
+            (j/execute-one! [(str "UPDATE " table " SET val = ? WHERE "
+                                  (case (rand/nth (:key-types test))
+                                    :primary "id"
+                                    :secondary "sk")
+                                  " = ?") v k])
+            :next.jdbc/update-count
+            pos?))
+
+(defn write-insert!
+  "Sets k to v using an INSERT statement. Returns true if written, otherwise
+  false, so you can fall back to an UPDATE."
+  [test conn txn? table k v]
+  ; If the insert conflicts, it'd be nice if we didn't have to throw away the
+  ; whole transaction. We'll use a savepoint to do that--but some DBs don't
+  ; support savepoints, so we make it optional.
+  (let [savepoint? (and txn? (:savepoints test))]
+    (try
+      (when savepoint?
+        (j/execute! conn ["SAVEPOINT upsert"]))
+      (j/execute! conn
+                  [(str "INSERT INTO " table " (id, sk, val) VALUES (?, ?, ?)")
+                   k k v])
+      (when savepoint?
+        (j/execute! conn ["RELEASE SAVEPOINT upsert"]))
+      true
+      (catch PSQLException e
+        (if (re-find #"duplicate key value" (.getMessage e))
+          (do (cond ; Fine--we failed but there's no txn that'll break
+                    (not txn?)
+                    nil
+
+                    ; We're in a txn, but have a savepoint; roll back.
+                    savepoint?
+                    (j/execute! conn ["ROLLBACK TO SAVEPOINT upsert"])
+
+                    ; No savepoint; gotta explode.
+                    true
+                    (throw e))
+              false)
+          (throw e))))))
+
+(defn write!
+  "Sets k to v, returning v."
+  [test conn txn? table k v]
+  (case (rand/nth (:upsert-types test))
+    ; Try an update, and if that fails, fall back to an insert, and if THAT
+    ; fails we probably conflicted, so try an update again.
+    :update-insert-update
+    (or (write-update! test conn table k v)
+        (write-insert! test conn txn? table k v)
+        (write-update! test conn table k v)
+        (throw+ {:type ::update-insert-update-failed
+                 :key k
+                 :value v}))
+
+    :on-conflict
+    (write-on-conflict! test conn table k v))
+  v)
 
 (defn read
   "Reads the value of key k."
@@ -69,10 +131,10 @@
   micro-op."
   [test conn txn? [f k v]]
   (let [table (table-for test k)]
-    (Thread/sleep (rand/zipf 10))
+    (Thread/sleep (rand/zipf (:mop-delay test)))
     [f k (case f
            :r (read test conn table k)
-           :w (write! test conn table k v))]))
+           :w (write! test conn txn? table k v))]))
 
 ; initialized? is an atom which we set when we first use the connection--we set
 ; up initial isolation levels, logging info, etc. This has to be stateful

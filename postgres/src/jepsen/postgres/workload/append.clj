@@ -46,7 +46,7 @@
     (when-let [v (:val (first r))]
       (mapv parse-long (str/split v #",")))))
 
-(defn append-using-on-conflict!
+(defn append-on-conflict!
   "Appends an element to a key using an INSERT ... ON CONFLICT statement."
   [test conn table k e]
   (j/execute!
@@ -61,30 +61,40 @@
           " = ?")
      k k e e k]))
 
-(defn insert!
+(defn append-insert!
   "Performs an initial insert of a key with initial element e. Catches
   duplicate key exceptions, returning true if succeeded. If the insert fails
   due to a duplicate key, it'll break the rest of the transaction, assuming
   we're in a transaction, so we establish a savepoint before inserting and roll
   back to it on failure."
   [test conn txn? table k e]
-  (try
-    ;(info (if txn? "" "not") "in transaction")
-    (when txn? (j/execute! conn ["savepoint upsert"]))
-    (j/execute! conn
-                [(str "insert into " table " (id, sk, val)"
-                      " values (?, ?, ?)")
-                 k k e])
-    (when txn? (j/execute! conn ["release savepoint upsert"]))
-    true
-    (catch org.postgresql.util.PSQLException e
-      (if (re-find #"duplicate key value" (.getMessage e))
-        (do (info (if txn? "txn") "insert failed: " (.getMessage e))
-            (when txn? (j/execute! conn ["rollback to savepoint upsert"]))
-            false)
-        (throw e)))))
+  (let [savepoint? (and txn? (:savepoints test))]
+    (try
+      (when savepoint? (j/execute! conn ["SAVEPOINT UPSERT"]))
+      (j/execute! conn
+                  [(str "INSERT INTO " table " (id, sk, val)"
+                        " VALUES (?, ?, ?)")
+                   k k e])
+      (when savepoint? (j/execute! conn ["RELEASE SAVEPOINT upsert"]))
+      true
+      (catch org.postgresql.util.PSQLException e
+        (if (re-find #"duplicate key value" (.getMessage e))
+          (do (info (if txn? "txn") "insert failed: " (.getMessage e))
+              (cond ; Fine: we failed but there's no txn that'll break
+                    (not txn?)
+                    nil
 
-(defn update!
+                    ; We're in a txn, but have a savepoint; roll back
+                    savepoint?
+                    (j/execute! conn ["ROLLBACK TO SAVEPOINT upsert"])
+
+                    ; No savepoint; gotta explode.
+                    true
+                    (throw e))
+              false)
+              (throw e))))))
+
+(defn append-update!
   "Performs an update of a key k, adding element e. Returns true if the update
   succeeded, false otherwise."
   [test conn table k e]
@@ -100,35 +110,35 @@
         :next.jdbc/update-count
         pos?)))
 
+(defn append!
+  "Appends element e to key k, returning e."
+  [test conn txn? table k e]
+  (let [e (str e)]
+    (case (rand/nth (:upsert-types test))
+      ; Try an update, and if that fails, fall back to an insert, and if THAT
+      ; fails, we probably conflicted, so update again.
+      :update-insert-update
+      (or (append-update! test conn table k e)
+          (append-insert! test conn txn? table k e)
+          (append-update! test conn table k e)
+          (throw+ {:type ::update-insert-update-failed
+                   :key   k
+                   :element e}))
+
+      :on-conflict
+      (append-on-conflict! test conn table k e)))
+  e)
+
 (defn mop!
   "Executes a transactional micro-op on a connection. Returns the completed
   micro-op."
   [test conn txn? [f k v]]
   (let [table-count (:table-count test default-table-count)
         table (table-for table-count k)]
-    (Thread/sleep (long (rand/zipf 10)))
+    (Thread/sleep (rand/zipf (:mop-delay test)))
     [f k (case f
-           :r (read test conn table k)
-
-           :append
-           (let [vs (str v)]
-             (if (:on-conflict test)
-               ; Use ON CONFLICT
-               (append-using-on-conflict! test conn table k vs)
-               ; Try an update, and if that fails, back off to an insert.
-               (or (update! test conn table k vs)
-                   ; No dice, fall back to an insert
-                   (insert! test conn txn? table k vs)
-                   ; OK if THAT failed then we probably raced with another
-                   ; insert; let's try updating again.
-                   (update! test conn table k vs)
-                   ; And if THAT failed, all bets are off. This happens even
-                   ; under SERIALIZABLE, but I don't think it technically
-                   ; VIOLATES serializability.
-                   (throw+ {:type     ::homebrew-upsert-failed
-                            :key      k
-                            :element  v})))
-             v))]))
+           :r      (read test conn table k)
+           :append (append! test conn txn? table k v))]))
 
 ; initialized? is an atom which we set when we first use the connection--we set
 ; up initial isolation levels, logging info, etc. This has to be stateful

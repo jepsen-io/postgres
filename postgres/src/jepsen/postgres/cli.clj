@@ -30,6 +30,10 @@
   "The various ways we can select something by primary key."
   #{:primary :secondary})
 
+(def upsert-types
+  "The various upsert tactics we use."
+  #{:update-insert-update :on-conflict})
+
 (def all-workloads
   "A collection of workloads we run by default."
   (remove #{:none} (keys workloads)))
@@ -171,12 +175,15 @@
     :parse-fn parse-long
     :validate [pos? "Must be a positive integer."]]
 
+   [nil "--mop-delay MS" "Maximum delay of a transactional micro-operation, in milliseconds. Delays are Zipfian, so mostly very small, but occasionally large."
+    :default 100
+    :parse-fn parse-long
+    :validate [(complement neg?) "Must not be negative"]]
+
    [nil "--nemesis-interval SECS" "Roughly how long between nemesis operations."
     :default 5
     :parse-fn read-string
     :validate [pos? "Must be a positive number."]]
-
-   [nil "--on-conflict" "If set, uses an ON CONFLICT clause to upsert rows."]
 
    [nil "--postgres-password PASS" "What password should we use to connect to postgres?"
     :default "pw"]
@@ -201,6 +208,14 @@
     :default 100
     :parse-fn read-string
     :validate [pos? "Must be a positive number."]]
+
+   [nil "--[no-]savepoints" "Does this database support savepoints?"
+    :default true]
+
+   [nil "--upsert-types TACTICS" "A comma-separated list of upsert tactics. For example, update,on-conflict."
+    :default (vec upsert-types)
+    :parse-fn parse-comma-kws
+    :validate [(partial every? upsert-types) (cli/one-of upsert-types)]]
 
    ["-v" "--version STRING" "What version of Postgres should we test?"
     :default "0.16.0"]
