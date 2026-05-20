@@ -163,6 +163,10 @@
      :validate [(partial every? #{:pause :kill :partition :clock :member})
                 "Faults must be pause, kill, partition, clock, or member, or the special faults all or none."]]
 
+   [nil "--[no-]linearizable-keys" "If set, assumes keys are linearizable for the wr workload."
+    :id :linearizable-keys?
+    :default false]
+
    [nil "--log-sql" "Logs SQL queries"]
 
    [nil "--max-txn-length NUM" "Maximum number of operations in a transaction."
@@ -212,6 +216,10 @@
    [nil "--[no-]savepoints" "Does this database support savepoints?"
     :default true]
 
+   [nil "--[no-]sequential-keys" "If set, assumes keys are sequentially consistent for the wr workload."
+    :id :sequential-keys?
+    :default false]
+
    [nil "--upsert-types TACTICS" "A comma-separated list of upsert tactics. For example, update,on-conflict."
     :default (vec upsert-types)
     :parse-fn parse-comma-kws
@@ -220,10 +228,15 @@
    ["-v" "--version STRING" "What version of Postgres should we test?"
     :default "0.16.0"]
 
+   [nil "--[no-]wfr-keys" "If set, assumes keys obey writes-follow-reads within a single transaction, for the wr workload. This is almost *certainly* a safe assumption."
+    :id :wfr-keys?
+    :default true]
+
    ["-w" "--workload NAME" "What workload should we run?"
     :default :append
     :parse-fn keyword
     :validate [workloads (cli/one-of workloads)]]
+
    ])
 
 (defn all-test-options

@@ -253,7 +253,10 @@
   (-> (wr/test (assoc (select-keys opts [:key-count
                                          :key-dist
                                          :max-txn-length
-                                         :max-writes-per-key])
+                                         :max-writes-per-key
+                                         :wfr-keys?
+                                         :linearizable-keys?
+                                         :sequential-keys?])
                       :min-txn-length 1
                       :consistency-models [(:expected-consistency-model opts)]))
       (assoc :client (Client. nil nil nil))
