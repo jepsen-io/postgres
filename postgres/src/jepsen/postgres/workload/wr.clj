@@ -153,28 +153,12 @@
     ; Secondaries may not be writable; always do writes on the primary node.
     (when (= node (jepsen/primary test))
       (dotimes [i (:table-count test default-table-count)]
-        (with-retry [conn  conn
-                     tries 10]
+        (c/with-schema-retry node [conn conn]
           (j/execute! conn
                       [(str "create table if not exists " (table-name i)
                             " (id int not null primary key,
                                sk int not null,
-                               val integer)")])
-          (catch org.postgresql.util.PSQLException e
-            (condp re-find (.getMessage e)
-              #"duplicate key value violates unique constraint"
-              :dup
-
-              #"An I/O error occurred|connection has been closed"
-              (do (when (zero? tries)
-                    (throw e))
-                  (info "Retrying IO error")
-                  (Thread/sleep 1000)
-                  (c/close! conn)
-                  (retry (c/await-open node)
-                         (dec tries)))
-
-              (throw e))))
+                               val integer)")]))
         ; Make sure we start fresh--in case we're using an existing postgres
         ; cluster and the DB automation isn't wiping the state for us.
         (j/execute! conn [(str "delete from " (table-name i))]))))

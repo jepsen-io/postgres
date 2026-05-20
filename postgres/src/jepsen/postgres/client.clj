@@ -147,3 +147,28 @@
        (catch Exception e#
          (j/execute! ~lhs ["ROLLBACK"])
          (throw e#)))))
+
+(defmacro with-schema-retry
+  "A macro for creating schemas on systems which are flaky. Binds connection to
+  conn-sym. Evaluates body several times until it no longer throws, catching
+  duplicate exceptions, possibly closing and re-opening the connection if there
+  are IO errors."
+  [node [conn-sym conn] & body]
+  `(with-retry [~conn-sym ~conn
+                tries# 10]
+     ~@body
+     (catch PSQLException e#
+            (condp re-find (.getMessage e#)
+              #"duplicate key value violates unique constraint"
+              :dup
+
+              #"An I/O error occurred|connection has been closed"
+              (do (when (zero? tries#)
+                    (throw e#))
+                  (info "Retrying IO error")
+                  (Thread/sleep 1000)
+                  (close! ~conn-sym)
+                  (~'retry (await-open ~node)
+                         (dec tries#)))
+
+              (throw e#)))))
