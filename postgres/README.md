@@ -20,7 +20,8 @@ lein run test-all -w append --max-writes-per-key 4 --concurrency 50 -r 500 --iso
 ## Workloads
 
 - `append`: Transactional reads and appends to lists of integers.
-- `wr`: Transactional reads and writes to registers.
+- `rw`: Transactional reads and writes to registers.
+- `internal`: Checks internal consistency of transactions only
 - `ledger`: Incomplete work-in-progress to test predicate safety.
 
 ## License

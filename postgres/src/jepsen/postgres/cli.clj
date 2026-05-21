@@ -11,28 +11,19 @@
                     [generator :as gen]
                     [nemesis :as nemesis]
                     [os :as os]
+                    [sql :as sql]
                     [tests :as tests]
                     [util :as util]]
             [jepsen.nemesis.combined :as nc]
             [jepsen.os.debian :as debian]
-            [jepsen.postgres [db :as db]]
-            [jepsen.postgres.workload [append :as append]
-                                      [wr     :as wr]
-                                      [ledger :as ledger]]))
+            [jepsen.postgres [client :as client]
+                             [db :as db]]))
 
 (def workloads
-  {:append      append/workload
-   :wr          wr/workload
-   :ledger      ledger/workload
-   :none        (fn [_] tests/noop-test)})
-
-(def key-types
-  "The various ways we can select something by primary key."
-  #{:primary :secondary})
-
-(def upsert-types
-  "The various upsert tactics we use."
-  #{:update-insert-update :on-conflict})
+  "A map of workload keywords (e.g. :append) to workload-constructing
+  functions."
+  (sql/workloads {:open client/open
+                  :error-fn client/error-fn}))
 
 (def all-workloads
   "A collection of workloads we run by default."
@@ -124,65 +115,16 @@
            (when (:existing-postgres opts)
              {:ssh {:dummy? true}}))))
 
-(def cli-opts
-  "Additional CLI options"
-  [["-i" "--isolation LEVEL" "What level of isolation we should set: serializable, repeatable-read, etc."
-    :default :serializable
-    :parse-fn keyword
-    :validate [#{:read-uncommitted
-                 :read-committed
-                 :repeatable-read
-                 :serializable}
-               "Should be one of read-uncommitted, read-committed, repeatable-read, or serializable"]]
-
+(def pg-cli-opts
+  "Additional CLI options for Postgres specifically"
+  [
    [nil "--existing-postgres" "If set, assumes nodes already have a running Postgres instance, skipping any OS and DB setup and teardown. Suitable for testing a local instance of Postgres (or some sort of pre-built cluster, like RDS) when you don't want to set up a whole-ass Jepsen environment."
     :default false]
-
-   [nil "--expected-consistency-model MODEL" "What level of isolation do we *expect* to observe? Defaults to the same as --isolation."
-    :default nil
-    :parse-fn keyword]
-
-   [nil "--key-types TYPES" "Some workloads have multiple ways to select the row for a specific key. TYPES is a comma-separated list of types like primary,secondary, which means we use a mix of primary keys and (un-indexed) secondary keys."
-    :default  (vec key-types)
-    :parse-fn parse-comma-kws
-    :validate [(partial every? key-types) (cli/one-of key-types)]]
-
-   [nil "--key-count NUM" "Number of keys in active rotation."
-    :default  10
-    :parse-fn parse-long
-    :validate [pos? "Must be a positive integer"]]
-
-   [nil "--key-dist DISTRIBUTION" "Key distribution pattern for workload generation."
-    :default :exponential
-    :parse-fn keyword
-    :validate [#{:uniform :exponential}
-               "Should be one of uniform or exponential"]]
 
    [nil "--nemesis FAULTS" "A comma-separated list of nemesis faults to enable"
      :parse-fn parse-nemesis-spec
      :validate [(partial every? #{:pause :kill :partition :clock :member})
                 "Faults must be pause, kill, partition, clock, or member, or the special faults all or none."]]
-
-   [nil "--[no-]linearizable-keys" "If set, assumes keys are linearizable for the wr workload."
-    :id :linearizable-keys?
-    :default false]
-
-   [nil "--log-sql" "Logs SQL queries"]
-
-   [nil "--max-txn-length NUM" "Maximum number of operations in a transaction."
-    :default  4
-    :parse-fn parse-long
-    :validate [pos? "Must be a positive integer"]]
-
-   [nil "--max-writes-per-key NUM" "Maximum number of writes to any given key."
-    :default  256
-    :parse-fn parse-long
-    :validate [pos? "Must be a positive integer."]]
-
-   [nil "--mop-delay MS" "Maximum delay of a transactional micro-operation, in milliseconds. Delays are Zipfian, so mostly very small, but occasionally large."
-    :default 100
-    :parse-fn parse-long
-    :validate [(complement neg?) "Must not be negative"]]
 
    [nil "--nemesis-interval SECS" "Roughly how long between nemesis operations."
     :default 5
@@ -213,31 +155,18 @@
     :parse-fn read-string
     :validate [pos? "Must be a positive number."]]
 
-   [nil "--[no-]savepoints" "Does this database support savepoints?"
-    :default true]
-
-   [nil "--[no-]sequential-keys" "If set, assumes keys are sequentially consistent for the wr workload."
-    :id :sequential-keys?
-    :default false]
-
-   [nil "--upsert-types TACTICS" "A comma-separated list of upsert tactics. For example, update,on-conflict."
-    :default (vec upsert-types)
-    :parse-fn parse-comma-kws
-    :validate [(partial every? upsert-types) (cli/one-of upsert-types)]]
-
    ["-v" "--version STRING" "What version of Postgres should we test?"
     :default "0.16.0"]
-
-   [nil "--[no-]wfr-keys" "If set, assumes keys obey writes-follow-reads within a single transaction, for the wr workload. This is almost *certainly* a safe assumption."
-    :id :wfr-keys?
-    :default true]
 
    ["-w" "--workload NAME" "What workload should we run?"
     :default :append
     :parse-fn keyword
     :validate [workloads (cli/one-of workloads)]]
-
    ])
+
+(def cli-opts
+  "Merged CLI options with the SQL test options."
+  (cli/merge-opt-specs sql/cli-opts pg-cli-opts))
 
 (defn all-test-options
   "Takes base cli options, a collection of nemeses, workloads, and a test count,

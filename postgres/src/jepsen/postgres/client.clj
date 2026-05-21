@@ -3,6 +3,7 @@
   (:require [clojure.tools.logging :refer [info warn]]
             [dom-top.core :refer [with-retry]]
             [jepsen [client :as client]
+                    [sql :as sql]
                     [util :as util]]
             [next.jdbc :as j]
             [next.jdbc.result-set :as rs]
@@ -11,20 +12,6 @@
             [wall.hack :as wh])
   (:import (java.sql Connection)
             (org.postgresql.util PSQLException)))
-
-(defn with-logging
-  "Wraps a connection-esque thing with an SQL logger, if (:log-sql test) is
-  true."
-  [test conn]
-  (if (:log-sql test)
-    (j/with-logging conn
-      (fn req-logger [op sql] sql)
-      (fn res-logger [op sql res]
-        (info op (pr-str sql) '->
-              (if (instance? Throwable res)
-                (.getMessage ^Throwable res)
-                (pr-str res)))))
-    conn))
 
 (defn open
   "Opens a connection to the given node."
@@ -36,32 +23,14 @@
         spec  (cond-> {:dbtype    "postgresql"
                        ;:dbname    "jepsen"
                        :host      node
-                       :port      (:postgres-port     test)}
+                       :port      (:postgres-port test)}
                 user              (assoc :user              user)
                 password          (assoc :password          password)
                 sslmode           (assoc :sslmode           sslmode)
                 prepare-threshold (assoc :prepareThreshold  prepare-threshold))
         ds    (j/get-datasource spec)
         conn  (j/get-connection ds)]
-    (with-logging test conn)))
-
-(defn set-transaction-isolation!
-  "Sets the transaction isolation level on a connection. Returns conn."
-  [conn level]
-  (.setTransactionIsolation
-    conn
-    (case level
-      :serializable     Connection/TRANSACTION_SERIALIZABLE
-      :repeatable-read  Connection/TRANSACTION_REPEATABLE_READ
-      :read-committed   Connection/TRANSACTION_READ_COMMITTED
-      :read-uncommitted Connection/TRANSACTION_READ_UNCOMMITTED))
-  conn)
-
-(defn close!
-  "Closes a connection."
-  [conn]
-  (j/on-connection [^java.sql.Connection conn conn]
-    (.close conn)))
+    conn))
 
 (defn await-open
   "Waits for a connection to node to become available, returning conn. Helpful
@@ -97,78 +66,42 @@
 
         (throw e)))))
 
-(defmacro with-errors
-  "Takes an operation and a body; evals body, turning known errors into :fail
-  or :info ops."
-  [op & body]
-  `(try ~@body
-        (catch clojure.lang.ExceptionInfo e#
-          (assoc ~op :type :info, :error [:ex-info (.getMessage e#)]))
-
-        (catch PSQLException e#
-          (condp re-find (.getMessage e#)
+(defn error-fn
+  "Takes an Exception and returns an error map for jepsen.sql, or nil if
+  unrecognized."
+  [^Exception e]
+  (let [msg (.getMessage e)]
+    (condp identical? (class e)
+      PSQLException
+      (condp re-find msg
             #"ERROR: cannot execute .+ in a read-only transaction"
-            (assoc ~op :type :fail, :error [:read-only])
+            {:type :read-only
+             :definite? true}
 
             #"ERROR: could not serialize access"
-            (assoc ~op :type :fail, :error [:could-not-serialize (.getMessage e#)])
+            {:type :could-not-serialize
+             :msg msg
+             :definite? true}
 
             #"ERROR: deadlock detected"
-            (assoc ~op :type :fail, :error [:deadlock (.getMessage e#)])
+            {:type :deadlock
+             :msg msg
+             :definite? true}
 
             #"ERROR: duplicate key value"
-            (assoc ~op :type :fail, :error [:duplicate-key-value (.getMessage e#)])
+            {:type :duplicate-key-value
+             :msg msg
+             :definite? true}
 
             #"An I/O error occurred"
-            (assoc ~op :type :info, :error :io-error)
+            {:type :io-error}
 
             #"connection has been closed"
-            (assoc ~op :type :info, :error :connection-has-been-closed)
+            {:type :connection-closed}
 
-            (throw e#)))))
+            #"current transaction is aborted"
+            {:type :txn-aborted
+             :definite? true}
 
-(defmacro with-txn
-  "Like next.jdbc/with-transaction, but takes a test map first. Re-wraps the
-  connection in logging, if applicable."
-  [test [lhs rhs & opts] & body]
-  `(j/with-transaction [~lhs ~rhs ~@opts]
-     (let [~lhs (with-logging ~test ~lhs)]
-       ~@body)))
-
-(defmacro with-manual-txn
-  "Same as with-txn, but uses explicit BEGIN/COMMIT statements."
-  [test [lhs rhs & opts] & body]
-  `(let [~lhs ~rhs]
-     (try
-       (j/execute! ~lhs ["BEGIN"])
-       (let [res# ~@body]
-         (j/execute! ~lhs ["COMMIT"])
-         res#)
-       (catch Exception e#
-         (j/execute! ~lhs ["ROLLBACK"])
-         (throw e#)))))
-
-(defmacro with-schema-retry
-  "A macro for creating schemas on systems which are flaky. Binds connection to
-  conn-sym. Evaluates body several times until it no longer throws, catching
-  duplicate exceptions, possibly closing and re-opening the connection if there
-  are IO errors."
-  [node [conn-sym conn] & body]
-  `(with-retry [~conn-sym ~conn
-                tries# 10]
-     ~@body
-     (catch PSQLException e#
-            (condp re-find (.getMessage e#)
-              #"duplicate key value violates unique constraint"
-              :dup
-
-              #"An I/O error occurred|connection has been closed"
-              (do (when (zero? tries#)
-                    (throw e#))
-                  (info "Retrying IO error")
-                  (Thread/sleep 1000)
-                  (close! ~conn-sym)
-                  (~'retry (await-open ~node)
-                         (dec tries#)))
-
-              (throw e#)))))
+            nil)
+        nil)))

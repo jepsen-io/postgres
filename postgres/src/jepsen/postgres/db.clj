@@ -1,12 +1,9 @@
 (ns jepsen.postgres.db
   "Database setup and automation."
-  (:require [cheshire.core :as json]
-            [clojure [pprint :refer [pprint]]
+  (:require [clojure [pprint :refer [pprint]]
                      [string :as str]]
             [clojure.java.io :as io]
             [clojure.tools.logging :refer [info warn]]
-            [dom-top.core :refer [disorderly
-                                  real-pmap]]
             [jepsen [control :as c :refer [|]]
                     [core :as jepsen]
                     [db :as db]
