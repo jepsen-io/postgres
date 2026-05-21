@@ -25,15 +25,16 @@
   "Installs postgresql"
   [test node]
   (c/su
-    ; Add repo
-    (debian/install ["postgresql-common"])
-    (info "Adding Postgres apt repos")
-    (c/exec :echo "" | "/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh")
-    ; Install
-    (debian/install [:postgresql-18 :postgresql-client-18])
-    ; Deactivate default install
-    (c/exec :service :postgresql :stop)
-    (c/exec "update-rc.d" :postgresql :disable)))
+    (when-not (debian/installed? :postgresql-18)
+      ; Add repo
+      (debian/install ["postgresql-common"])
+      (info "Adding Postgres apt repos")
+      (c/exec :echo "" | "/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh")
+      ; Install
+      (debian/install [:postgresql-18 :postgresql-client-18])
+      ; Deactivate default install
+      (c/exec :service :postgresql :stop)
+      (c/exec "update-rc.d" :postgresql :disable))))
 
 (defn db
   "A database which just runs a regular old single-node Postgres instance"
