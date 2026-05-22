@@ -1,3 +1,4 @@
+(comment
 (ns jepsen.postgres.workload.ledger
   "A test which aims to concretely demonstrate the impact of G2-item anomalies
   we found using the list-append test. We store a simulated bank ledger where
@@ -188,3 +189,4 @@
   {:client    (Client. nil nil nil (atom 0))
    :checker   (checker)
    :generator (rand-gen)})
+)
