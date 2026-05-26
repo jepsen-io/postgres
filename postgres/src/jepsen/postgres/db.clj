@@ -77,8 +77,8 @@
 
       db/LogFiles
       (log-files [_ test node]
-        (concat (db/log-files tcpdump test node)
-                [just-postgres-log-file]))
+        (merge (db/log-files tcpdump test node)
+               {just-postgres-log-file "postgresql.log"}))
 
       db/Primary
       (setup-primary! [db test node])
