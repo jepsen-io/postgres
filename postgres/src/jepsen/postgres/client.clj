@@ -10,8 +10,9 @@
             [next.jdbc.sql.builder :as sqlb]
             [slingshot.slingshot :refer [try+ throw+]]
             [wall.hack :as wh])
-  (:import (java.sql Connection)
-            (org.postgresql.util PSQLException)))
+  (:import (clojure.lang ExceptionInfo)
+           (java.sql Connection)
+           (org.postgresql.util PSQLException)))
 
 (defn open
   "Opens a connection to the given node."
@@ -23,7 +24,12 @@
         spec  (cond-> {:dbtype    "postgresql"
                        ;:dbname    "jepsen"
                        :host      node
-                       :port      (:postgres-port test)}
+                       :port      (:postgres-port test)
+                       :connectTimeout      10
+                       :loginTimeout        10
+                       :queryTimeout        10
+                       :socketTimeout       10
+                       :cancelSignalTimeout 10}
                 user              (assoc :user              user)
                 password          (assoc :password          password)
                 sslmode           (assoc :sslmode           sslmode)
@@ -99,9 +105,19 @@
             #"connection has been closed"
             {:type :connection-closed}
 
+            #"Connection attempt timed out"
+            {:type :connection-timed-out, :definite? true}
+
             #"current transaction is aborted"
-            {:type :txn-aborted
-             :definite? true}
+            {:type :txn-aborted, :definite? true}
 
             nil)
-        nil)))
+
+      ExceptionInfo
+      (let [data (ex-data e)]
+        (when (:rollback data)
+          ; For a rollback, the original exception will be in :handling; that's
+          ; what we should use
+          (recur (:handling data))))
+
+      nil)))
