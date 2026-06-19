@@ -102,6 +102,9 @@
             #"An I/O error occurred"
             {:type :io-error}
 
+            #"column not found"
+            {:type :column-not-found, :definite? true, :msg msg}
+
             #"connection has been closed"
             {:type :connection-closed}
 
@@ -110,6 +113,9 @@
 
             #"current transaction is aborted"
             {:type :aborted, :definite? true}
+
+            #"table not found"
+            {:type :table-not-found, :definite? true, :msg msg}
 
             nil)
 
