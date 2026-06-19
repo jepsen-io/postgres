@@ -85,18 +85,18 @@
              :definite? true}
 
             #"ERROR: could not serialize access"
-            {:type :could-not-serialize
-             :msg msg
+            {:type      :could-not-serialize
+             :msg       msg
              :definite? true}
 
             #"ERROR: deadlock detected"
-            {:type :deadlock
-             :msg msg
+            {:type      :deadlock
+             :msg       msg
              :definite? true}
 
             #"ERROR: duplicate key value"
-            {:type :duplicate-key-value
-             :msg msg
+            {:type      :duplicate-key-value
+             :msg       msg
              :definite? true}
 
             #"An I/O error occurred"
@@ -109,7 +109,7 @@
             {:type :connection-timed-out, :definite? true}
 
             #"current transaction is aborted"
-            {:type :txn-aborted, :definite? true}
+            {:type :aborted, :definite? true}
 
             nil)
 
