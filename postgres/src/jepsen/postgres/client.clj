@@ -121,9 +121,13 @@
 
       ExceptionInfo
       (let [data (ex-data e)]
-        (when (:rollback data)
+        (cond (and (:rollback data) (:handling data))
           ; For a rollback, the original exception will be in :handling; that's
           ; what we should use
-          (recur (:handling data))))
+          (recur (:handling data))
+
+          ; Otherwise, pass up our own maps
+          true
+          data))
 
       nil)))
