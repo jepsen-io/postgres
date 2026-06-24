@@ -39,64 +39,57 @@
 (defn db
   "A database which just runs a regular old single-node Postgres instance"
   [opts]
-  (let [tcpdump (db/tcpdump {:ports [5432]
-                             ; Haaack, hardcoded for my particular cluster
-                             ; control node
-                             :filter "host 192.168.122.1"})]
-    (reify db/DB
-      (setup! [_ test node]
-        (db/setup! tcpdump test node)
-        (install-pg! test node)
-        (c/su (cu/write-file! (slurp (io/resource "pg_hba.conf"))
-                             "/etc/postgresql/18/main/pg_hba.conf")
-              (cu/write-file! (slurp (io/resource "jepsen.conf"))
-                              "/etc/postgresql/18/main/conf.d/99-jepsen.conf"))
+  (reify db/DB
+    (setup! [_ test node]
+      (install-pg! test node)
+      (c/su (cu/write-file! (slurp (io/resource "pg_hba.conf"))
+                            "/etc/postgresql/18/main/pg_hba.conf")
+            (cu/write-file! (slurp (io/resource "jepsen.conf"))
+                            "/etc/postgresql/18/main/conf.d/99-jepsen.conf"))
 
-        ; Create fresh data dir
-        (c/sudo user
-                ; Can't create if it exists--installing will make this dir
-                (c/exec :rm :-rf (c/lit "/var/lib/postgresql/18/main/*"))
-                (c/exec "/usr/lib/postgresql/18/bin/initdb"
-                        :-D "/var/lib/postgresql/18/main"))
+      ; Create fresh data dir
+      (c/sudo user
+              ; Can't create if it exists--installing will make this dir
+              (c/exec :rm :-rf (c/lit "/var/lib/postgresql/18/main/*"))
+              (c/exec "/usr/lib/postgresql/18/bin/initdb"
+                      :-D "/var/lib/postgresql/18/main"))
 
-        (c/su (c/exec :service :postgresql :start))
-        (cu/await-tcp-port 5432))
+      (c/su (c/exec :service :postgresql :start))
+      (cu/await-tcp-port 5432))
 
-      (teardown! [_ test node]
-        (c/su (try+ (c/exec :service :postgresql :stop)
-                    ; Not installed?
-                    (catch [:exit 5] _))
-              ; This might not actually work, so we have to kill the processes
-              ; too
-              (cu/grepkill! "postgres")
-              (c/exec :rm :-rf (c/lit "/var/lib/postgresql/18/main/*")))
-        (try+ (c/sudo user
-                      (c/exec :truncate :-s 0 just-postgres-log-file))
-              (catch [:exit 1] _)) ; No user (not installed)
-        (db/teardown! tcpdump test node))
+    (teardown! [_ test node]
+      (c/su (try+ (c/exec :service :postgresql :stop)
+                  ; Not installed?
+                  (catch [:exit 5] _))
+            ; This might not actually work, so we have to kill the processes
+            ; too
+            (cu/grepkill! "postgres")
+            (c/exec :rm :-rf (c/lit "/var/lib/postgresql/18/main/*")))
+      (try+ (c/sudo user
+                    (c/exec :truncate :-s 0 just-postgres-log-file))
+            (catch [:exit 1] _))) ; No user (not installed)
 
-      db/LogFiles
-      (log-files [_ test node]
-        (merge (db/log-files tcpdump test node)
-               {just-postgres-log-file "postgresql.log"}))
+    db/LogFiles
+    (log-files [_ test node]
+      {just-postgres-log-file "postgresql.log"})
 
-      db/Primary
-      (setup-primary! [db test node])
-      (primaries [db test]
-        ; Everyone's a winner! Really, there should only be one node here,
-        ; so... it's kinda trivial.
-        (:nodes test))
+    db/Primary
+    (setup-primary! [db test node])
+    (primaries [db test]
+      ; Everyone's a winner! Really, there should only be one node here,
+      ; so... it's kinda trivial.
+      (:nodes test))
 
-      db/Process
-      (start! [db test node]
-        (c/su (c/exec :service :postgresql :restart)))
+    db/Process
+    (start! [db test node]
+      (c/su (c/exec :service :postgresql :restart)))
 
-      (kill! [db test node]
-        (doseq [pattern (shuffle
-                          ["postgres -D" ; Main process
-                           "main: checkpointer"
-                           "main: background writer"
-                           "main: walwriter"
-                           "main: autovacuum launcher"])]
-          (Thread/sleep (rand-int 100))
-          (info "Killing" pattern "-" (cu/grepkill! pattern)))))))
+    (kill! [db test node]
+      (doseq [pattern (shuffle
+                        ["postgres -D" ; Main process
+                         "main: checkpointer"
+                         "main: background writer"
+                         "main: walwriter"
+                         "main: autovacuum launcher"])]
+        (Thread/sleep (rand-int 100))
+        (info "Killing" pattern "-" (cu/grepkill! pattern))))))
