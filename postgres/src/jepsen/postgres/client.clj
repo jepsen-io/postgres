@@ -118,7 +118,7 @@
             {:type :table-not-found, :definite? true, :msg msg}
 
             #"violates not-null constraint"
-            {:type :violates-not-null, :msg m, :definite? true}
+            {:type :violates-not-null, :definite? true, :msg msg}
 
             nil)
 
