@@ -42,6 +42,7 @@
   (reify db/DB
     (setup! [_ test node]
       (install-pg! test node)
+      (info "Configuring Postgres")
       (c/su (cu/write-file! (slurp (io/resource "pg_hba.conf"))
                             "/etc/postgresql/18/main/pg_hba.conf")
             (cu/write-file! (slurp (io/resource "jepsen.conf"))
@@ -54,10 +55,12 @@
               (c/exec "/usr/lib/postgresql/18/bin/initdb"
                       :-D "/var/lib/postgresql/18/main"))
 
+      (info "Starting Postgres")
       (c/su (c/exec :service :postgresql :start))
       (cu/await-tcp-port 5432))
 
     (teardown! [_ test node]
+      (info "Tearing down Postgres")
       (c/su (try+ (c/exec :service :postgresql :stop)
                   ; Not installed?
                   (catch [:exit 5] _))
