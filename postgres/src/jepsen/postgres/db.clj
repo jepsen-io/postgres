@@ -43,13 +43,13 @@
     (setup! [_ test node]
       (install-pg! test node)
       (info "Configuring Postgres")
-      (c/su (cu/write-file! (slurp (io/resource "pg_hba.conf"))
-                            "/etc/postgresql/18/main/pg_hba.conf")
-            (cu/write-file! (slurp (io/resource "jepsen.conf"))
-                            "/etc/postgresql/18/main/conf.d/99-jepsen.conf"))
-
-      ; Create fresh data dir
       (c/sudo user
+              (c/su (cu/write-file! (slurp (io/resource "pg_hba.conf"))
+                                    "/etc/postgresql/18/main/pg_hba.conf")
+                    (cu/write-file! (slurp (io/resource "jepsen.conf"))
+                                    "/etc/postgresql/18/main/conf.d/99-jepsen.conf"))
+
+              ; Create fresh data dir
               ; Can't create if it exists--installing will make this dir
               (c/exec :rm :-rf (c/lit "/var/lib/postgresql/18/main/*"))
               (c/exec "/usr/lib/postgresql/18/bin/initdb"
